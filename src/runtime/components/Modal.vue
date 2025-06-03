@@ -23,6 +23,11 @@ export interface ModalProps extends DialogRootProps {
    */
   transition?: boolean
   /**
+   * Animate the modal from the lement when opening or closing
+   * @defaultValue false
+   */
+  transitionFromElement?: HTMLElement
+  /**
    * When `true`, the modal will take up the full screen.
    * @defaultValue false
    */
@@ -72,6 +77,7 @@ export interface ModalSlots {
 </script>
 
 <script setup lang="ts">
+import { Motion, AnimatePresence } from 'motion-v'
 import { computed, toRef } from 'vue'
 import { DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose, VisuallyHidden, useForwardPropsEmits } from 'reka-ui'
 import { reactivePick } from '@vueuse/core'
@@ -119,79 +125,114 @@ const contentEvents = computed(() => {
 })
 
 const ui = computed(() => tv({ extend: tv(theme), ...(appConfig.ui?.modal || {}) })({
-  transition: props.transition,
+  transition: transitionFromElementBounds.value ? false : props.transition,
   fullscreen: props.fullscreen
 }))
+
+const dialogTriggerRef = useTemplateRef('dialogTriggerRef')
+
+const transitionFromElementBounds = computed(() => {
+  const transitionFromElement = props.transitionFromElement || dialogTriggerRef.value?.$el.nextElementSibling
+  if (!transitionFromElement) return
+  const { left, top, width, height } = transitionFromElement.getBoundingClientRect()
+  const { innerWidth, innerHeight } = window
+  return { x: (left + (width / 2)) - (innerWidth / 2), y: (top + (height / 2)) - (innerHeight / 2) }
+})
+
+function onMotionComplete(customEvent) {
+  if (customEvent.detail.isExit) {
+    emits('after:leave')
+  } else {
+    emits('after:enter')
+  }
+}
 </script>
 
 <!-- eslint-disable vue/no-template-shadow -->
 <template>
   <DialogRoot v-slot="{ open, close }" v-bind="rootProps">
-    <DialogTrigger v-if="!!slots.default" as-child :class="props.class">
+    <DialogTrigger v-if="!!slots.default" ref="dialogTriggerRef" as-child :class="props.class">
       <slot :open="open" />
     </DialogTrigger>
 
     <DialogPortal v-bind="portalProps">
-      <DialogOverlay v-if="overlay" :class="ui.overlay({ class: props.ui?.overlay })" />
+      <AnimatePresence>
+        <DialogOverlay v-if="overlay" :class="ui.overlay({ class: props.ui?.overlay })" />
 
-      <DialogContent :class="ui.content({ class: [!slots.default && props.class, props.ui?.content] })" v-bind="contentProps" @after-enter="emits('after:enter')" @after-leave="emits('after:leave')" v-on="contentEvents">
-        <VisuallyHidden v-if="!!slots.content && ((title || !!slots.title) || (description || !!slots.description))">
-          <DialogTitle v-if="title || !!slots.title">
-            <slot name="title">
-              {{ title }}
-            </slot>
-          </DialogTitle>
+        <DialogContent
+          :class="ui.content({ class: [!slots.default && props.class, props.ui?.content] })"
+          as-child
+          v-bind="contentProps"
+          v-on="contentEvents"
+        >
+          <Motion
+            :variants="{ hide: () => ({ opacity: 0, scale: 0.1, ...transitionFromElementBounds }), show: { opacity: 1, scale: 1, x: 0, y: 0 } }"
+            initial="hide"
+            :custom="transitionFromElementBounds"
+            animate="show"
+            exit="hide"
+            :transition="{ ease: 'easeInOut', bounce: .25, type: 'spring', exit: { duration: 200, type: 'keyframe' } }"
+            @motioncomplete="onMotionComplete"
+          >
+            <VisuallyHidden v-if="!!slots.content && ((title || !!slots.title) || (description || !!slots.description))">
+              <DialogTitle v-if="title || !!slots.title">
+                <slot name="title">
+                  {{ title }}
+                </slot>
+              </DialogTitle>
 
-          <DialogDescription v-if="description || !!slots.description">
-            <slot name="description">
-              {{ description }}
-            </slot>
-          </DialogDescription>
-        </VisuallyHidden>
+              <DialogDescription v-if="description || !!slots.description">
+                <slot name="description">
+                  {{ description }}
+                </slot>
+              </DialogDescription>
+            </VisuallyHidden>
 
-        <slot name="content" :close="close">
-          <div v-if="!!slots.header || (title || !!slots.title) || (description || !!slots.description) || (props.close || !!slots.close)" :class="ui.header({ class: props.ui?.header })">
-            <slot name="header" :close="close">
-              <div :class="ui.wrapper({ class: props.ui?.wrapper })">
-                <DialogTitle v-if="title || !!slots.title" :class="ui.title({ class: props.ui?.title })">
-                  <slot name="title">
-                    {{ title }}
-                  </slot>
-                </DialogTitle>
+            <slot name="content" :close="close">
+              <div v-if="!!slots.header || (title || !!slots.title) || (description || !!slots.description) || (props.close || !!slots.close)" :class="ui.header({ class: props.ui?.header })">
+                <slot name="header" :close="close">
+                  <div :class="ui.wrapper({ class: props.ui?.wrapper })">
+                    <DialogTitle v-if="title || !!slots.title" :class="ui.title({ class: props.ui?.title })">
+                      <slot name="title">
+                        {{ title }}
+                      </slot>
+                    </DialogTitle>
 
-                <DialogDescription v-if="description || !!slots.description" :class="ui.description({ class: props.ui?.description })">
-                  <slot name="description">
-                    {{ description }}
-                  </slot>
-                </DialogDescription>
+                    <DialogDescription v-if="description || !!slots.description" :class="ui.description({ class: props.ui?.description })">
+                      <slot name="description">
+                        {{ description }}
+                      </slot>
+                    </DialogDescription>
+                  </div>
+
+                  <DialogClose v-if="props.close || !!slots.close" as-child>
+                    <slot name="close" :close="close" :ui="ui">
+                      <UButton
+                        v-if="props.close"
+                        :icon="closeIcon || appConfig.ui.icons.close"
+                        size="md"
+                        color="neutral"
+                        variant="ghost"
+                        :aria-label="t('modal.close')"
+                        v-bind="(typeof props.close === 'object' ? props.close as Partial<ButtonProps> : {})"
+                        :class="ui.close({ class: props.ui?.close })"
+                      />
+                    </slot>
+                  </DialogClose>
+                </slot>
               </div>
 
-              <DialogClose v-if="props.close || !!slots.close" as-child>
-                <slot name="close" :close="close" :ui="ui">
-                  <UButton
-                    v-if="props.close"
-                    :icon="closeIcon || appConfig.ui.icons.close"
-                    size="md"
-                    color="neutral"
-                    variant="ghost"
-                    :aria-label="t('modal.close')"
-                    v-bind="(typeof props.close === 'object' ? props.close as Partial<ButtonProps> : {})"
-                    :class="ui.close({ class: props.ui?.close })"
-                  />
-                </slot>
-              </DialogClose>
+              <div v-if="!!slots.body" :class="ui.body({ class: props.ui?.body })">
+                <slot name="body" :close="close" />
+              </div>
+
+              <div v-if="!!slots.footer" :class="ui.footer({ class: props.ui?.footer })">
+                <slot name="footer" :close="close" />
+              </div>
             </slot>
-          </div>
-
-          <div v-if="!!slots.body" :class="ui.body({ class: props.ui?.body })">
-            <slot name="body" :close="close" />
-          </div>
-
-          <div v-if="!!slots.footer" :class="ui.footer({ class: props.ui?.footer })">
-            <slot name="footer" :close="close" />
-          </div>
-        </slot>
-      </DialogContent>
+          </Motion>
+        </DialogContent>
+      </AnimatePresence>
     </DialogPortal>
   </DialogRoot>
 </template>
