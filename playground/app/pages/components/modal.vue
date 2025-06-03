@@ -13,10 +13,10 @@ const modal = overlay.create(LazyModalExample, {
   }
 })
 
-function openModal() {
+function openModal(ev: MouseEvent) {
   count.value++
 
-  modal.open({ count: count.value })
+  modal.open({ count: count.value, transitionFromElement: ev.target })
 }
 </script>
 
