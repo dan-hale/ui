@@ -32,6 +32,15 @@ const items = [
     }
   },
   {
+    label: 'Open in V0',
+    icon: 'i-simple-icons:v0',
+    target: '_blank',
+    to: `https://v0.dev/chat/api/open?url=${encodeURIComponent(mdPath.value)}`,
+    onSelect() {
+      track('Page Action', { action: 'Open in V0', page: route.path })
+    }
+  },
+  {
     label: 'Open in ChatGPT',
     icon: 'i-simple-icons:openai',
     target: '_blank',
